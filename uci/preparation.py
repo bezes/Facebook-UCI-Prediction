@@ -5,12 +5,17 @@ the dataset to answer the questions.
 
 # -- Imports
 import numpy as np
+import os
 import pandas as pd
+import requests
 from sklearn.preprocessing import PowerTransformer
 from sklearn.model_selection import train_test_split
+import zipfile
+
 
 # -- Globals
-FILE_PATH = 'dataset_Facebook.csv'
+URL = "https://archive.ics.uci.edu/ml/machine-learning-databases/00368/Facebook_metrics.zip"
+FILE_NAME = 'dataset_Facebook.csv'
 SEP = ';'
 COLUMNS = [
     'Lifetime Post Consumers', 'Category', 'Type', 'Page total likes',
@@ -120,3 +125,52 @@ def prepare_datasets(
             pt_y = None
 
         yield X_train, X_test, y_train, y_test, pt_y
+
+
+def load_data():
+    """
+        Downloads the UCI dataset and reads
+        a list of columns into a dataframe.
+    """
+    files_to_remove = []
+    try:
+        # Download file only if it's not available
+        cwd = os.getcwd()  # current working directory
+        filepath = os.path.join(cwd, FILE_NAME)
+
+        if not os.path.exists(filepath):
+            # Download the zip file into `zip_path`
+            compressed_file = requests.get(URL)
+            zip_filename = URL.split('/')[-1]
+            zip_path = os.path.join(cwd, zip_filename)
+            files_to_remove.append(zip_path)
+
+            with open(zip_path, 'wb') as f:
+                f.write(compressed_file.content)
+
+            # Extract the zip fle into its components
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(cwd)
+                # get the downloaded files list
+                files = zip_ref.namelist()
+                # add the path for all, ignoring the csv file. We will keep that
+                files = [os.path.join(cwd, f) for f in files if f != FILE_NAME]
+                files_to_remove.extend(files)
+
+        # Now read the file to a pandas DataFrame
+        df = pd.read_csv(filepath, sep=SEP, usecols=COLUMNS)
+        return df
+
+    except Exception:
+        print('Error fetching data, exiting...')
+        raise
+
+    finally:
+        if files_to_remove:
+            for f in files_to_remove:
+                # easier To ask for forgiveness
+                try:
+                    os.remove(f)
+                except OSError:
+                    # Just display the error, nothing more to do
+                    print(f'Unable to delete {f}')

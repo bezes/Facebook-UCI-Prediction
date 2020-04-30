@@ -15,7 +15,7 @@ from sklearn.svm import SVR
 from sklearn.ensemble import RandomForestRegressor
 from xgboost import XGBRegressor
 
-from uci.preparation import prepare_datasets, FILE_PATH, SEP, COLUMNS
+from uci.preparation import prepare_datasets, load_data, inverse_transform
 
 
 # -- Constants
@@ -130,7 +130,7 @@ def try_regressors(X, y, regressors_list, k_fold=5):
 
 
 def main():
-    df = pd.read_csv(FILE_PATH, sep=SEP, usecols=COLUMNS)
+    df = load_data()
     numbers_of_sets = 1
     seed = 0
     dummy_columns = ['Type', 'Category', 'Post Month', 'Post Weekday']
