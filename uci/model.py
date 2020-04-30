@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_squared_error, mean_absolute_error
+from sklearn.utils.fixes import loguniform
 from sklearn.model_selection import KFold, RandomizedSearchCV,\
     cross_validate
 from sklearn.linear_model import Lasso, Ridge, LinearRegression
@@ -20,10 +21,12 @@ from uci.preparation import prepare_datasets, load_data, inverse_transform
 
 # -- Constants
 RANDOM_SEARCH_PARAMS = {
-    'Lasso': {},
-    'Ridge': {},
+    # 'Ridge': {'alpha': 1.0},
     # 'LinearRegression': {},
     'SVR': {
+        'C': loguniform(1e0, 1e4),
+        'gamma': loguniform(1e-4, 0.9),
+        'kernel': ['rbf'],
     },
     'RandomForestRegressor': {
         'n_estimators': np.linspace(100, 2000, 20).astype(int),
@@ -58,7 +61,13 @@ RANDOM_SEARCH_PARAMS = {
 #     categ_cols = ['Type', 'Category', 'Post Month', 'Post Weekday']
 #     assert set(categ_cols).issubset(set(X_train.columns))
 
-def random_search(model, X, y, random_state, k_fold=5, n_iter=50):
+def tune_regressor(model, X, y, random_state, k_fold=5, n_iter=50):
+    """
+        Tunes the `model` based on a preconfigured
+        hyperparameter dictionary and randomized search
+        and returns the tuned model, i.e. initiated with
+        the optimal hyperparameters
+     """
     # Load the random grid
     try:
         random_grid = RANDOM_SEARCH_PARAMS[model.__name__]
@@ -75,6 +84,7 @@ def random_search(model, X, y, random_state, k_fold=5, n_iter=50):
     # search across 100 different combinations, and use all available cores
     random_cv = RandomizedSearchCV(
         estimator=model_obj,
+        scoring='neg_mean_squared_error',
         param_distributions=random_grid,
         n_iter=n_iter,
         cv=k_fold,
@@ -85,7 +95,6 @@ def random_search(model, X, y, random_state, k_fold=5, n_iter=50):
 
     random_cv.fit(X, y)
     best_model = model(**random_cv.best_params_)
-    best_model.fit(X, y)
 
     return best_model
 
@@ -94,8 +103,22 @@ def calc_predictions(model, X):
     return model.predict(X)
 
 
-def try_regressors(X, y, regressors_list, k_fold=5):
-    """ Try regressors and find the best model """
+def choose_regressor(X, y, regressors_list, k_fold=5):
+    """
+        This function runs a `k_fold` cross validation
+        for all models in the `regressors_list`, and
+        chooses the best one.
+
+        The selection criterion chosen for now is minimum RMSE,
+        without taking into consideration other parameters
+        like fit and predict times. This can be tailored to
+        the algorithm needs, e.g. having a prediction time
+        threshold above which we ignore the model.
+
+        The function returns the best model
+        as well as a pandas dataframe with statistics
+        on RMSE, fit times and predict times.
+     """
 
     results_dict = {
         'rmse_mean': {},
@@ -105,15 +128,19 @@ def try_regressors(X, y, regressors_list, k_fold=5):
         'fit_time_mean': {},
         'fit_time_stdev': {}
     }
+
+    model_dict = {}
     for model in regressors_list:
         cv_results = cross_validate(
             model, X, y, cv=k_fold,
-            scoring=('r2', 'neg_mean_squared_error')
+            scoring='neg_mean_squared_error'
         )
+        model_dict[type(model).__name__] = model
+
         results_dict['rmse_mean'][type(model).__name__] = - np.mean(
-            cv_results['test_neg_mean_squared_error'])
+            cv_results['test_score'])
         results_dict['rmse_stdev'][type(model).__name__] = np.std(
-            cv_results['test_neg_mean_squared_error'])
+            cv_results['test_score'])
 
         results_dict['score_time_mean'][type(model).__name__] = np.mean(
             cv_results['score_time'])
@@ -126,7 +153,12 @@ def try_regressors(X, y, regressors_list, k_fold=5):
             cv_results['fit_time'])
 
     results_df = pd.DataFrame(results_dict)
-    return results_df
+
+    # Selection Criterion
+    selected_model_str = results_df['rmse_mean'].idxmin()
+    selected_model = model_dict[selected_model_str]
+
+    return selected_model, results_df
 
 
 def main():
@@ -152,29 +184,84 @@ def main():
             XGBRegressor
         ]
 
-        best_regressors = []
+        tuned_regressors = []
 
         for regressor in regressors_list:
-            best_model = random_search(regressor, X_train,
-                                       y_train, random_state=0,
-                                       n_iter=20)
-            best_regressors.append(best_model)
+            tuned_regressor = tune_regressor(
+                regressor, X_train, y_train, random_state=0, n_iter=10)
+            tuned_regressors.append(tuned_regressor)
 
-        results_df = try_regressors(
-            X_train, y_train, best_regressors, k_fold=5)
+        # Now we need to choose the best between the tuned regressors
+        selected_model, results_df = choose_regressor(
+            X_train, y_train, tuned_regressors)
 
-        num_cols = len(results_df.columns)
-        fig, axes = plt.subplots(1, num_cols // 2, figsize=(18, 6))
-        for i in range(0, num_cols, 2):
-            results_df.iloc[:, i].plot.bar(
-                ax=axes[i // 2],
-                yerr=results_df.iloc[:, i + 1] * 1.96
-            )
-            axes[i // 2].set_title(results_df.columns[i][:-5])
+        # Plot results
+        do_plot = False
+        if do_plot:
+            num_cols = len(results_df.columns)
+            fig, axes = plt.subplots(1, num_cols // 2, figsize=(18, 6))
+            for i in range(0, num_cols, 2):
+                results_df.iloc[:, i].plot.bar(
+                    ax=axes[i // 2],
+                    yerr=results_df.iloc[:, i + 1] * 1.96
+                )
+                axes[i // 2].set_title(results_df.columns[i][:-5])
+            plt.show()
+
+        # Evaluate the model performance
+        # for both train and test set
+
+        # fit
+        selected_model.fit(X_train, y_train)
+
+        # predict
+        y_train_pred = selected_model.predict(X_train)
+        y_test_pred = selected_model.predict(X_test)
+
+        # and denormalise both pred and original y series
+        y_train_pred = inverse_transform(y_train_pred, pt_y)
+        y_test_pred = inverse_transform(y_test_pred, pt_y)
+        y_train = inverse_transform(y_train.values, pt_y)
+        y_test = inverse_transform(y_test.values, pt_y)
+
+        train_rmse = mean_squared_error(y_train, y_train_pred)
+        test_rmse = mean_squared_error(y_test, y_test_pred)
+        print('Train RMSE = {:.01f}, Test RMSE = {:.01f}'.format(
+            train_rmse, test_rmse))
+
+        fig, axes = plt.subplots(2, 2, figsize=(12, 12))
+        axes[0, 0].scatter(y_train, y_train_pred)
+        axes[1, 0].scatter(y_train, y_train_pred)
+        axes[0, 0].set_title('Training Set')
+        axes[0, 1].scatter(y_test, y_test_pred)
+        axes[1, 1].scatter(y_test, y_test_pred)
+        axes[0, 1].set_title('Test Set')
+
+        y = np.concatenate([y_train, y_test])
+        ymax = np.max(y) * 1.01
+        yperc95 = np.percentile(y, 95)
+        axes[0, 0].set_xlim([0, ymax])
+        axes[0, 0].set_ylim([0, ymax])
+
+        axes[0, 1].set_xlim([0, ymax])
+        axes[0, 1].set_ylim([0, ymax])
+
+        axes[1, 0].set_xlim([0, yperc95])
+        axes[1, 0].set_ylim([0, yperc95])
+
+        axes[1, 1].set_xlim([0, yperc95])
+        axes[1, 1].set_ylim([0, yperc95])
+
+        for axx in axes:
+            for ax in axx:
+                # ax.set_ylim([0, ymax])
+                ax.set_xlabel('Actual Values')
+                ax.set_ylabel('Predicted Values')
+                ax.grid()
+                ax.plot(ax.get_xlim(), ax.get_ylim(), ls="--")
+
         plt.show()
-
-        print(results_df.to_string())
-
+        pass
 
 
 if __name__ == '__main__':
