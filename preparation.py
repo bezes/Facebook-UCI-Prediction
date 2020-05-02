@@ -9,7 +9,7 @@ import os
 import pandas as pd
 import requests
 from sklearn.preprocessing import PowerTransformer
-from sklearn.model_selection import KFold, train_test_split
+from sklearn.model_selection import ShuffleSplit
 import zipfile
 
 
@@ -21,11 +21,12 @@ COLUMNS = [
     'Lifetime Post Consumers', 'Category', 'Type', 'Page total likes',
     'Post Month', 'Post Weekday', 'Post Hour', 'Paid'
 ]
+CATEG_COLUMNS = ['Type', 'Category', 'Post Month', 'Post Weekday']
 Y_COL = 'Lifetime Post Consumers'
 HOUR_COL = 'Post Hour'
 HOUR_X_COL = 'hour_x'
 HOUR_Y_COL = 'hour_y'
-TEST_SIZE = 0.2
+TEST_SIZE = 0.25
 
 
 # -- Functions
@@ -75,17 +76,25 @@ def inverse_transform(series, power_transformer):
 
 def prepare_datasets(
         df,
-        number_of_splits=2, seed=0,
+        number_of_splits=1, seed=0,
         do_convert_hour=True,
-        do_power_transform=True,
-        categ_columns=None,
+        do_power_transform=True
 ):
-    if do_convert_hour and (HOUR_COL in df.columns):
-        df = convert_hour(df, HOUR_COL, HOUR_X_COL, HOUR_Y_COL)
+    """
+        Prepare and split datasets for training purposes
+    """
+    # make sure we don't run into issues when the list gets changed
+    categ_columns = CATEG_COLUMNS.copy()
+
+    if do_convert_hour:
+        if HOUR_COL in df.columns:
+            df = convert_hour(df, HOUR_COL, HOUR_X_COL, HOUR_Y_COL)
     else:
-        if categ_columns and (HOUR_COL not in categ_columns):
+        # add the hour into categorical columns
+        if HOUR_COL not in categ_columns:
             categ_columns.append(HOUR_COL)
 
+    # The categorical variables are encoded using one-hot encoding
     if categ_columns:
         df = pd.get_dummies(df, columns=categ_columns)
 
@@ -95,20 +104,13 @@ def prepare_datasets(
     df['Paid'] = df['Paid'].fillna(df.Paid.mode().iloc[0])
     df['Paid'] = df['Paid'].astype(int)
 
-    np.random.seed(seed)
-    # Workaround to allow for only one split
-    # as KFold does not allow one shuffle
-    if number_of_splits == 1:
-        only_one = True
-        number_of_splits += 1
-    else:
-        only_one = False
-
-    kfold = KFold(n_splits=number_of_splits, shuffle=True)
+    shuffle_split = ShuffleSplit(n_splits=number_of_splits,
+                                 test_size=TEST_SIZE,
+                                 random_state=seed)
     y = df[Y_COL]
     X = df.drop(columns=Y_COL)
 
-    for train_indices, test_indices in kfold.split(df):
+    for train_indices, test_indices in shuffle_split.split(df):
         X_train = X.loc[train_indices]
         X_test = X.loc[test_indices]
         y_train = y.loc[train_indices]
@@ -127,8 +129,6 @@ def prepare_datasets(
 
         yield X_train, X_test, y_train, y_test, pt_y
         # yielded one, we can break the loop now
-        if only_one:
-            break
 
 
 def load_data():
