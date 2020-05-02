@@ -9,7 +9,7 @@ import os
 import pandas as pd
 import requests
 from sklearn.preprocessing import PowerTransformer
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import KFold, train_test_split
 import zipfile
 
 
@@ -41,20 +41,6 @@ def convert_hour(df, hour_col, hour_x_col, hour_y_col):
     df[hour_y_col] = np.cos(2 * np.pi * df[hour_col] / 24)
     del df[hour_col]
     return df
-
-
-def construct_sets(df, y_col=Y_COL, test_size=TEST_SIZE, random_state=0):
-    """
-        Creates the X and y sets and splits to
-        train and test based on input seed
-    """
-    y = df[y_col]
-    X = df.drop(columns='Lifetime Post Consumers')
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, random_state=random_state)
-
-    return X_train, X_test, y_train, y_test
 
 
 def power_transform(series, power_transformer=None):
@@ -89,29 +75,44 @@ def inverse_transform(series, power_transformer):
 
 def prepare_datasets(
         df,
-        number_of_sets=1, seed=0,
+        number_of_splits=2, seed=0,
         do_convert_hour=True,
         do_power_transform=True,
-        dummy_columns=None,
+        categ_columns=None,
 ):
     if do_convert_hour and (HOUR_COL in df.columns):
         df = convert_hour(df, HOUR_COL, HOUR_X_COL, HOUR_Y_COL)
+    else:
+        if categ_columns and (HOUR_COL not in categ_columns):
+            categ_columns.append(HOUR_COL)
 
-    if dummy_columns:
-        df = pd.get_dummies(df, columns=dummy_columns)
+    if categ_columns:
+        df = pd.get_dummies(df, columns=categ_columns)
 
     # fill the NaN in the Paid column with the most common value
     # and convert to int
-    df['Paid'] = df['Paid'].fillna(df.Paid.mode().iloc[0]).astype(int)
+    # TODO Use KNN imputation
+    df['Paid'] = df['Paid'].fillna(df.Paid.mode().iloc[0])
+    df['Paid'] = df['Paid'].astype(int)
 
     np.random.seed(seed)
-    # kfold = KFold(n_splits=number_of_sets)
-    # for train_indices, test_indices in k_fold.split(X):
-    for _ in range(number_of_sets):
-        random_state = np.random.randint(low=0, high=np.iinfo(int).max)
+    # Workaround to allow for only one split
+    # as KFold does not allow one shuffle
+    if number_of_splits == 1:
+        only_one = True
+        number_of_splits += 1
+    else:
+        only_one = False
 
-        X_train, X_test, y_train, y_test = construct_sets(
-            df, random_state=random_state)
+    kfold = KFold(n_splits=number_of_splits, shuffle=True)
+    y = df[Y_COL]
+    X = df.drop(columns=Y_COL)
+
+    for train_indices, test_indices in kfold.split(df):
+        X_train = X.loc[train_indices]
+        X_test = X.loc[test_indices]
+        y_train = y.loc[train_indices]
+        y_test = y.loc[test_indices]
 
         if do_power_transform:
             X_train['Page total likes'], pt_x = power_transform(
@@ -125,6 +126,9 @@ def prepare_datasets(
             pt_y = None
 
         yield X_train, X_test, y_train, y_test, pt_y
+        # yielded one, we can break the loop now
+        if only_one:
+            break
 
 
 def load_data():
