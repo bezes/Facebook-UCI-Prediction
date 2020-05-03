@@ -126,10 +126,9 @@ def prepare_datasets(
             transformer_y = None
 
         yield X_train, X_test, y_train, y_test, transformer_y
-        # yielded one, we can break the loop now
 
 
-def load_data():
+def load_data(usecols=None):
     """
         Downloads the UCI dataset and reads
         a list of columns into a dataframe.
@@ -160,7 +159,7 @@ def load_data():
                 files_to_remove.extend(files)
 
         # Now read the file to a pandas DataFrame
-        df = pd.read_csv(filepath, sep=SEP, usecols=COLUMNS)
+        df = pd.read_csv(filepath, sep=SEP, usecols=usecols)
         return df
 
     except Exception:
