@@ -161,17 +161,18 @@ def select_model(
     return selected_model, results_df
 
 
-def get_predictions(model, X_train, y_train, X_test, y_test, pt_y=None):
+def get_predictions(model, X_train, y_train, X_test, y_test,
+                    transformer_y=None):
     # Predict both train and test set
     y_train_pred = model.predict(X_train)
     y_test_pred = model.predict(X_test)
 
-    if pt_y:
+    if transformer_y:
         # denormalise both pred and original y series
-        y_train_pred = inverse_transform(y_train_pred, pt_y)
-        y_test_pred = inverse_transform(y_test_pred, pt_y)
-        y_train = inverse_transform(y_train.values, pt_y)
-        y_test = inverse_transform(y_test.values, pt_y)
+        y_train_pred = inverse_transform(y_train_pred, transformer_y)
+        y_test_pred = inverse_transform(y_test_pred, transformer_y)
+        y_train = inverse_transform(y_train.values, transformer_y)
+        y_test = inverse_transform(y_test.values, transformer_y)
 
     return y_train_pred, y_test_pred, y_train, y_test
 

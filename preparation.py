@@ -8,7 +8,7 @@ import numpy as np
 import os
 import pandas as pd
 import requests
-from sklearn.preprocessing import PowerTransformer
+from sklearn.preprocessing import QuantileTransformer
 from sklearn.model_selection import ShuffleSplit
 import zipfile
 
@@ -44,33 +44,31 @@ def convert_hour(df, hour_col, hour_x_col, hour_y_col):
     return df
 
 
-def power_transform(series, power_transformer=None):
+def transform(series, transformer=None):
     """
-        Transform input series using a power transformation.
-        We use the default sklearn method 'yeo-johnson', as
-        it is safer than the box-cox (negative values available).
-        If a PowerTransformer object is not provided, a new object
-        is created and returned for future use.
-        If a PowerTransformer object is provided, it is used
+        Transform input series using a quantile transformation,
+        with target output a normal distribution.
+        If a transformer object is provided, it is used
         to encode the input series.
     """
-    if not power_transformer:
+    if not transformer:
         # create and fit
-        power_transformer = PowerTransformer()
-        power_transformer.fit(series.values.reshape(-1, 1))
+        transformer = QuantileTransformer(output_distribution='normal')
+        transformer.fit(series.values.reshape(-1, 1))
 
     transformed_series = pd.Series(
-        power_transformer.transform(series.values.reshape(-1, 1)).ravel(),
+        transformer.transform(series.values.reshape(-1, 1)).ravel(),
         index=series.index
     )
-    return transformed_series, power_transformer
+    return transformed_series, transformer
 
 
-def inverse_transform(series, power_transformer):
+def inverse_transform(series, transformer):
     """
         Inverse transform the input series using the provided PowerTransformer
     """
-    transformed_series = power_transformer.inverse_transform(series.reshape(-1, 1))
+    transformed_series = transformer.inverse_transform(
+        series.reshape(-1, 1))
     return pd.Series(transformed_series.ravel())
 
 
@@ -78,7 +76,7 @@ def prepare_datasets(
         df,
         number_of_splits=1, seed=0,
         do_convert_hour=True,
-        do_power_transform=True
+        do_transform=True
 ):
     """
         Prepare and split datasets for training purposes
@@ -116,18 +114,18 @@ def prepare_datasets(
         y_train = y.loc[train_indices]
         y_test = y.loc[test_indices]
 
-        if do_power_transform:
-            X_train['Page total likes'], pt_x = power_transform(
+        if do_transform:
+            X_train['Page total likes'], pt_x = transform(
                 X_train['Page total likes'])
-            X_test['Page total likes'], _ = power_transform(
+            X_test['Page total likes'], _ = transform(
                 X_test['Page total likes'], pt_x)
 
-            y_train, pt_y = power_transform(y_train)
-            y_test, _ = power_transform(y_test, pt_y)
+            y_train, transformer_y = transform(y_train)
+            y_test, _ = transform(y_test, transformer_y)
         else:
-            pt_y = None
+            transformer_y = None
 
-        yield X_train, X_test, y_train, y_test, pt_y
+        yield X_train, X_test, y_train, y_test, transformer_y
         # yielded one, we can break the loop now
 
 
