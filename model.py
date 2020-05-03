@@ -38,26 +38,21 @@ RANDOM_SEARCH_PARAMS = {
     'KNeighborsRegressor': {
         'n_neighbors': np.arange(3, 10),
         'p': [1, 2],
-        # 'leaf_size': [20, 30, 40]
     },
     'RandomForestRegressor': {
         'n_estimators': np.arange(10, 200, 10),
         'max_features': ['auto', 'sqrt'],
         'max_depth': [None, 5, 10, 20, 30, 40],
         'min_samples_split': [2, 3, 4, 5],
-        # 'min_samples_leaf': [1, 2, 3],
-        # 'bootstrap': [True, False]
     },
     'XGBRegressor': {
         'booster': ['gbtree'],
-        'n_estimators': np.arange(10, 200, 10),
-        'learning_rate': np.arange(0.05, 0.5, 0.05),
-        'max_depth': np.arange(2, 8),
-        'min_child_weight': np.arange(1, 8),
-        'gamma': np.arange(0.0, 0.6, 0.1),
-        'colsample_bytree': np.arange(0.3, 1.0, 0.1),
-        # 'lambda': [0.1, 0.3, 1, 3, 10, 30, 100],
-        # 'alpha': [0, 0.1, 0.3, 1.]
+        'max_depth': np.arange(3, 10),
+        'learning_rate': np.arange(0.01, 1.0, 0.01),
+        'n_estimators': np.arange(10, 500, 10),
+        'gamma': np.arange(0.0, 5.0, 0.1),
+        'subsample': np.arange(0.5, 1.1, 0.1),
+        'colsample_bytree': np.arange(0.5, 1.1, 0.1),
     },
 }
 
